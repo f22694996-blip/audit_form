@@ -131,4 +131,35 @@ with tab1:
                     try:
                         # 1. 下載最新雲端資料
                         try:
-                            cloud_df = get
+                            cloud_df = get_as_dataframe(record_sheet).dropna(how='all').dropna(axis=1, how='all')
+                        except:
+                            cloud_df = pd.DataFrame()
+                        
+                        local_df = ed_final.copy()
+                        
+                        # 2. 執行智能合併
+                        if cloud_df.empty or "工地名稱" not in cloud_df.columns:
+                            merged_df = local_df
+                        else:
+                            cloud_df = cloud_df.set_index(["工地名稱", "缺失項目"], drop=False)
+                            local_df = local_df.set_index(["工地名稱", "缺失項目"], drop=False)
+                            
+                            cloud_na = cloud_df.replace("", pd.NA)
+                            local_na = local_df.replace("", pd.NA)
+                            
+                            cloud_na.update(local_na)
+                            
+                            new_rows = local_na[~local_na.index.isin(cloud_na.index)]
+                            merged_df = pd.concat([cloud_na, new_rows])
+                            
+                            merged_df = merged_df.fillna("").reset_index(drop=True)
+                            sites_with_issues = merged_df[merged_df["缺失項目"] != ""]["工地名稱"].unique()
+                            mask_to_drop = (merged_df["工地名稱"].isin(sites_with_issues)) & (merged_df["缺失項目"] == "")
+                            merged_df = merged_df[~mask_to_drop]
+
+                        # 3. 寫回雲端
+                        record_sheet.clear() 
+                        set_with_dataframe(record_sheet, merged_df) 
+                        st.success("✅ 太棒了！你的資料已與同事的進度完美合併，沒有任何人被覆蓋！")
+                    except Exception as e:
+                        st.error(f"同步失敗，錯誤訊息: {e}")
