@@ -8,21 +8,22 @@ from gspread_dataframe import set_with_dataframe, get_as_dataframe
 st.set_page_config(layout="wide") 
 st.title("☁️ 稽核檢查自動化表單 (雲端協同作戰版)")
 
-# --- 1. 雲端連線 ---
+# --- 1. 雲端連線 (升級 VIP 快取防護罩，避免被 Google 封鎖) ---
 @st.cache_resource
 def init_connection():
     scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     key_dict = json.loads(st.secrets["json_key"])
     creds = Credentials.from_service_account_info(key_dict, scopes=scope)
-    return gspread.authorize(creds)
-
-try:
-    client = init_connection()
+    client = gspread.authorize(creds)
+    
     # 👇 居米，請在這裡貼上你的_GOOGLE_SHEET_ID
     SHEET_ID = "1FDchd2MQ1KyUzcNkDM44YnDbpJ6_dBBmSIPoNqv1-tI" 
     sh = client.open_by_key(SHEET_ID)
-    record_sheet = sh.worksheet("Records")
-    setting_sheet = sh.worksheet("Settings") # 讀寫後台設定的分頁
+    return sh.worksheet("Records"), sh.worksheet("Settings")
+
+try:
+    # 網頁不管怎麼重整，都只會從快取拿這兩個表單，不再瘋狂連線
+    record_sheet, setting_sheet = init_connection()
 except Exception as e:
     st.error(f"❌ 連線失敗！請檢查 Secrets 或 SHEET_ID。錯誤細節：{e}")
     st.stop()
@@ -44,7 +45,7 @@ def load_settings():
 if 'sites' not in st.session_state:
     st.session_state.sites = {'建築': ['惠國101', '合銘新店'], '土木': ['C211', 'C214'], '機電': ['劍潭多目標大樓']}
     st.session_state.inspection_items = ['管制標籤', '高度2M以下', '金屬繫材確實延伸', '跨坐勿站立頂板']
-    load_settings() # 自動載入雲端的「檢查項目」與「工地清單」
+    load_settings() 
 
 if 'results' not in st.session_state: st.session_state.results = {}
 if 'reset_key' not in st.session_state: st.session_state.reset_key = 0
@@ -72,7 +73,6 @@ with tab2:
         st.session_state.inspection_items = clean_ls(ed_i["檢查項目"].tolist())
     with c2:
         st.subheader("2. 工地清單")
-        # 🔧 升級版排版：使用獨立小分頁，解決工地數量太多表格卡住的問題
         site_tabs = st.tabs(['🏗️ 建築', '🛣️ 土木', '⚡ 機電'])
         for idx, cat in enumerate(['建築', '土木', '機電']):
             with site_tabs[idx]:
@@ -93,7 +93,7 @@ with tab2:
                 df_to_save = pd.DataFrame(dict_series)
                 setting_sheet.clear()
                 set_with_dataframe(setting_sheet, df_to_save)
-                st.success("✅ 設定已永久儲存！包含檢查項目喔！")
+                st.success("✅ 設定已永久儲存！")
             except Exception as e:
                 st.error(f"儲存失敗: {e}")
 
@@ -175,11 +175,4 @@ with tab1:
                             merged_df = merged_df.fillna("").reset_index(drop=True)
                             
                             sites_with_issues = merged_df[merged_df["缺失項目"] != ""]["工地名稱"].unique()
-                            mask_to_drop = (merged_df["工地名稱"].isin(sites_with_issues)) & (merged_df["缺失項目"] == "")
-                            merged_df = merged_df[~mask_to_drop]
-
-                        record_sheet.clear() 
-                        set_with_dataframe(record_sheet, merged_df) 
-                        st.success("✅ 太棒了！你的資料已完美合併，沒有任何人被覆蓋！")
-                    except Exception as e:
-                        st.error(f"同步失敗: {e}")
+                            mask_to_drop
