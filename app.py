@@ -3,16 +3,15 @@ import pandas as pd
 import gspread
 import json
 from google.oauth2.service_account import Credentials
-from gspread_dataframe import set_with_dataframe
+from gspread_dataframe import set_with_dataframe, get_as_dataframe
 
 st.set_page_config(layout="wide") 
-st.title("☁️ 稽核檢查自動化表單 (雲端同步版)")
+st.title("☁️ 稽核檢查自動化表單 (雲端協同作戰版)")
 
 # --- 1. 雲端連線設定 ---
 @st.cache_resource
 def init_connection():
     scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-    # 這裡改成從 Streamlit 的「安全保險箱」讀取金鑰，不留實體檔案
     key_dict = json.loads(st.secrets["json_key"])
     creds = Credentials.from_service_account_info(key_dict, scopes=scope)
     return gspread.authorize(creds)
@@ -40,7 +39,7 @@ if 'reset_key' not in st.session_state:
 def reset_form():
     st.session_state.results = {}
     st.session_state.reset_key += 1
-    st.success("✨ 已成功清空本月紀錄！")
+    st.success("✨ 已成功清空本機畫面紀錄！")
 
 def clean_and_unique(input_list):
     cleaned = [str(x).strip() for x in input_list if pd.notna(x) and str(x).strip() != ""]
@@ -68,7 +67,7 @@ with tab2:
 with tab1:
     col_t, col_b = st.columns([4, 1])
     col_t.header("📝 稽核檢查填寫")
-    col_b.button("🔄 一鍵清空本月紀錄", on_click=reset_form, use_container_width=True)
+    col_b.button("🔄 清空畫面重新填寫", on_click=reset_form, use_container_width=True)
 
     for cat, site_list in st.session_state.sites.items():
         if site_list:
@@ -124,13 +123,12 @@ with tab1:
         col_dl, col_sync = st.columns(2)
         with col_dl:
             csv = ed_final.to_csv(index=False).encode('utf-8-sig')
-            st.download_button(label="📥 1. 下載目前稽核表", data=csv, file_name="稽核報表.csv", mime="text/csv", use_container_width=True)
+            st.download_button(label="📥 1. 下載目前畫面稽核表", data=csv, file_name="稽核報表.csv", mime="text/csv", use_container_width=True)
             
         with col_sync:
-            if st.button("☁️ 2. 一鍵覆寫同步至 Google 雲端", use_container_width=True):
-                try:
-                    record_sheet.clear() 
-                    set_with_dataframe(record_sheet, ed_final) 
-                    st.success("✅ 太棒了！資料已完美同步至 Google 雲端表單！")
-                except Exception as e:
-                    st.error(f"同步失敗，錯誤訊息: {e}")
+            if st.button("☁️ 2. 智能合併同步至 Google 雲端", use_container_width=True):
+                with st.spinner('正在與雲端資料智能比對合併中...'):
+                    try:
+                        # 1. 下載最新雲端資料
+                        try:
+                            cloud_df = get
