@@ -137,8 +137,9 @@ with tab1:
                         
                         local_df = ed_final.copy()
                         
-                        # 2. 執行智能合併
-                        if cloud_df.empty or "工地名稱" not in cloud_df.columns:
+                        # 2. 執行智能合併 (加入嚴格防呆)
+                        # 如果雲端表單是空的，或是少了「缺失項目」、「工地名稱」等關鍵欄位，直接當作新表單覆寫！
+                        if cloud_df.empty or "工地名稱" not in cloud_df.columns or "缺失項目" not in cloud_df.columns:
                             merged_df = local_df
                         else:
                             cloud_df = cloud_df.set_index(["工地名稱", "缺失項目"], drop=False)
