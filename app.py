@@ -74,6 +74,9 @@ tab1, tab2 = st.tabs(["📝 表單填寫", "⚙️ 後台設定"])
 # === 第二頁：後台設定 ===
 with tab2:
     st.header("⚙️ 系統設定")
+    # 🔧 加入防呆警告，提醒不要刪除雲端第一列
+    st.warning("⚠️ 重要提醒：Google 雲端表單的『第一列 (Row 1)』為系統專屬標題列。請勿在 Google Sheets 手動刪除第一列，否則你的第一筆資料會被當成標題吃掉喔！")
+    
     c1, c2 = st.columns(2)
     with c1:
         st.subheader("1. 檢查項目")
@@ -126,6 +129,9 @@ with tab1:
                 st.divider()
 
     st.header("📊 完整全覽報表與雲端同步")
+    # 🔧 填寫區也加入防呆警告
+    st.info("💡 提醒：請確保雲端 Google Sheets 的第一列標題完好無缺，以免第一筆資料同步時被系統誤認為標題而覆蓋。")
+    
     rep = []
     for cat, s_list in st.session_state.sites.items():
         for s in s_list:
@@ -141,7 +147,6 @@ with tab1:
             else:
                 for xi in x_items:
                     r = row_base.copy()
-                    # 🔧 修復核心：把上次同步的文字「回填」到報表裡，不再讓它變空白！
                     txt = st.session_state.last_sync_texts.get(f"{cat}_{s}_{xi}", {})
                     r.update({"缺失工地":s, "缺失項目":xi, "缺失描述": txt.get("缺失描述", ""), "改善情形": txt.get("改善情形", "")})
                     rep.append(r)
@@ -189,7 +194,6 @@ with tab1:
                                     cloud_txt = text_fields.get(f"{cat}_{s}_{xi}", {})
                                     last_txt = st.session_state.last_sync_texts.get(f"{cat}_{s}_{xi}", {})
                                     
-                                    # 如果你手寫的字跟上次同步不一樣，才覆蓋雲端
                                     f_desc = desc if str(desc) != str(last_txt.get("缺失描述", "")) else cloud_txt.get("缺失描述", "")
                                     f_impr = impr if str(impr) != str(last_txt.get("改善情形", "")) else cloud_txt.get("改善情形", "")
                                     text_fields[f"{cat}_{s}_{xi}"] = {"缺失描述": f_desc, "改善情形": f_impr}
@@ -219,12 +223,12 @@ with tab1:
                             record_sheet.clear() 
                             set_with_dataframe(record_sheet, merged_df) 
                             
-                            # 4. 更新本地記憶並強制刷新畫面 (加入重置鑰匙，讓畫面立刻反映同事的進度！)
+                            # 4. 更新本地記憶並強制刷新畫面
                             st.session_state.last_sync_results = merged_results.copy()
                             st.session_state.last_sync_texts = text_fields.copy()
                             for k, v in merged_results.items(): st.session_state.results[k] = v
                             
-                            st.session_state.reset_key += 1 # 🔧 強制更新按鈕狀態
+                            st.session_state.reset_key += 1 
                             st.session_state.sync_success = True
                             st.rerun() 
                         else: st.warning("⚠️ 沒有資料可以同步喔！")
