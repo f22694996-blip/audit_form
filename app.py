@@ -15,7 +15,7 @@ with st.sidebar:
         st.cache_resource.clear()
         st.rerun()
 
-st.title("☁️ 稽核檢查自動化表單 (雲端協同作戰版)")
+st.title("☁️ 稽核檢查自動化表單 (雲端協同版)")
 
 # --- 1. 雲端連線 ---
 @st.cache_resource
@@ -116,7 +116,7 @@ with tab2:
 # === 第一頁：表單填寫 ===
 with tab1:
     if st.session_state.sync_success:
-        st.success("✅ 同步成功！畫面已更新為團隊最新進度，可直接繼續向下填寫，無需清空！")
+        st.success("✅ 同步成功！資料已安全送達雲端。您可以繼續留在本頁面填寫其他工地，無需清空！")
         st.session_state.sync_success = False
 
     col_t, col_b = st.columns([4, 1])
@@ -139,12 +139,12 @@ with tab1:
                         st.session_state.results[key] = st.radio(f"📌 {item}", ['○', 'X', 'NA'], key=f"r_{key}_{st.session_state.reset_key}", index=idx, horizontal=True)
                 st.divider()
 
-    st.header("📊 完整全覽報表與雲端同步")
+    # 💡 標題修正：提醒使用者這只是「自己的進度」，不是雲端的總表
+    st.header("📊 您目前的填寫進度 (準備同步的資料)")
     rep = []
     for cat, s_list in st.session_state.sites.items():
         for s in s_list:
-            x_items = []
-            row_base = {"工程類別": cat, "工地名稱": s}
+            x_items, row_base = [], {"工程類別": cat, "工地名稱": s}
             for it in st.session_state.inspection_items:
                 v = st.session_state.results.get(f"{cat}_{s}_{it}")
                 row_base[it] = v if v else ""
@@ -169,7 +169,7 @@ with tab1:
             
         with col_sync:
             if st.button("☁️ 2. 智能合併同步至 Google 雲端", use_container_width=True):
-                with st.spinner('正在進行 Delta 差異比對與合併中...'):
+                with st.spinner('資料合併上傳中...'):
                     try:
                         try:
                             cloud_data = record_sheet.get_all_records()
@@ -181,20 +181,15 @@ with tab1:
                         
                         if not cloud_df.empty and "工地名稱" in cloud_df.columns:
                             for _, row in cloud_df.iterrows():
-                                s = str(row.get("工地名稱", "")).strip()
-                                cat = str(row.get("工程類別", "")).strip()
+                                s, cat = str(row.get("工地名稱", "")).strip(), str(row.get("工程類別", "")).strip()
                                 if not s or str(s).lower() == "nan": continue
                                 for it in st.session_state.inspection_items:
                                     if it in row and pd.notna(row[it]) and str(row[it]).strip():
                                         merged_results[f"{cat}_{s}_{it}"] = str(row[it]).strip()
                                 xi = str(row.get("缺失項目", "")).strip()
                                 if xi and str(xi).lower() != "nan":
-                                    desc = str(row.get("缺失描述", "")).strip()
-                                    impr = str(row.get("改善情形", "")).strip()
-                                    text_fields[f"{cat}_{s}_{xi}"] = {
-                                        "缺失描述": desc if desc.lower() != "nan" else "", 
-                                        "改善情形": impr if impr.lower() != "nan" else ""
-                                    }
+                                    desc, impr = str(row.get("缺失描述", "")).strip(), str(row.get("改善情形", "")).strip()
+                                    text_fields[f"{cat}_{s}_{xi}"] = {"缺失描述": desc if desc.lower() != "nan" else "", "改善情形": impr if impr.lower() != "nan" else ""}
                                             
                         for k, v in st.session_state.results.items():
                             if v is not None and str(v).strip():
@@ -203,12 +198,9 @@ with tab1:
                                     
                         if not ed_final.empty and "工地名稱" in ed_final.columns:
                             for _, row in ed_final.iterrows():
-                                s = str(row.get("工地名稱", "")).strip()
-                                cat = str(row.get("工程類別", "")).strip()
-                                xi = str(row.get("缺失項目", "")).strip()
+                                s, cat, xi = str(row.get("工地名稱", "")).strip(), str(row.get("工程類別", "")).strip(), str(row.get("缺失項目", "")).strip()
                                 if s and str(s).lower() != "nan" and xi and str(xi).lower() != "nan":
-                                    desc = str(row.get("缺失描述", "")).strip()
-                                    impr = str(row.get("改善情形", "")).strip()
+                                    desc, impr = str(row.get("缺失描述", "")).strip(), str(row.get("改善情形", "")).strip()
                                     desc = "" if desc.lower() == "nan" else desc
                                     impr = "" if impr.lower() == "nan" else impr
                                     
@@ -222,8 +214,7 @@ with tab1:
                         rep_merged = []
                         for c_name, s_list in st.session_state.sites.items():
                             for s_name in s_list:
-                                x_items = []
-                                row_base = {"工程類別": c_name, "工地名稱": s_name}
+                                x_items, row_base = [], {"工程類別": c_name, "工地名稱": s_name}
                                 for it in st.session_state.inspection_items:
                                     v = merged_results.get(f"{c_name}_{s_name}_{it}", "")
                                     row_base[it] = v
@@ -236,12 +227,7 @@ with tab1:
                                     for xi in x_items:
                                         r = row_base.copy()
                                         txt = text_fields.get(f"{c_name}_{s_name}_{xi}", {})
-                                        r.update({
-                                            "缺失工地": s_name, 
-                                            "缺失項目": xi, 
-                                            "缺失描述": txt.get("缺失描述", ""), 
-                                            "改善情形": txt.get("改善情形", "")
-                                        })
+                                        r.update({"缺失工地": s_name, "缺失項目": xi, "缺失描述": txt.get("缺失描述", ""), "改善情形": txt.get("改善情形", "")})
                                         rep_merged.append(r)
                                         
                         merged_df = pd.DataFrame(rep_merged) if rep_merged else pd.DataFrame()
@@ -249,11 +235,21 @@ with tab1:
                             record_sheet.clear() 
                             set_with_dataframe(record_sheet, merged_df, include_column_header=True) 
                             
-                            st.session_state.last_sync_results = merged_results.copy()
-                            st.session_state.last_sync_texts = text_fields.copy()
-                            for k, v in merged_results.items(): st.session_state.results[k] = v
+                            # 💡 核心修正：這裡不再把雲端的資料倒灌回使用者的畫面！
+                            # 只安靜地記下使用者「自己」剛剛成功送出了什麼
+                            st.session_state.last_sync_results = st.session_state.results.copy()
                             
-                            st.session_state.reset_key += 1 
+                            local_texts = {}
+                            if not ed_final.empty and "工地名稱" in ed_final.columns:
+                                for _, row in ed_final.iterrows():
+                                    s, cat, xi = str(row.get("工地名稱", "")).strip(), str(row.get("工程類別", "")).strip(), str(row.get("缺失項目", "")).strip()
+                                    if s and str(s).lower() != "nan" and xi and str(xi).lower() != "nan":
+                                        desc, impr = str(row.get("缺失描述", "")).strip(), str(row.get("改善情形", "")).strip()
+                                        desc = "" if desc.lower() == "nan" else desc
+                                        impr = "" if impr.lower() == "nan" else impr
+                                        local_texts[f"{cat}_{s}_{xi}"] = {"缺失描述": desc, "改善情形": impr}
+                            st.session_state.last_sync_texts = local_texts
+                            
                             st.session_state.sync_success = True
                             st.rerun() 
                         else: st.warning("⚠️ 沒有資料可以同步喔！")
