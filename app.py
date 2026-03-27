@@ -47,17 +47,23 @@ def load_settings():
                     st.session_state.sites[cat] = [str(x) for x in df_set[cat].dropna() if str(x).strip()]
     except: pass
 
-# --- 3. 初始化 ---
+# --- 3. 初始化 (加入 Delta 記憶模組) ---
 if 'sites' not in st.session_state:
     st.session_state.sites = {'建築': ['惠國101', '合銘新店'], '土木': ['C211', 'C214'], '機電': ['劍潭多目標大樓']}
     st.session_state.inspection_items = ['管制標籤', '高度2M以下', '金屬繫材確實延伸', '跨坐勿站立頂板']
     load_settings() 
 
 if 'results' not in st.session_state: st.session_state.results = {}
+if 'last_sync_results' not in st.session_state: st.session_state.last_sync_results = {}
+if 'last_sync_texts' not in st.session_state: st.session_state.last_sync_texts = {}
 if 'reset_key' not in st.session_state: st.session_state.reset_key = 0
+if 'sync_success' not in st.session_state: st.session_state.sync_success = False
 
 def reset_form():
-    st.session_state.results, st.session_state.reset_key = {}, st.session_state.reset_key + 1
+    st.session_state.results = {}
+    st.session_state.last_sync_results = {}
+    st.session_state.last_sync_texts = {}
+    st.session_state.reset_key += 1
     st.success("✨ 已清空本機畫面紀錄！")
 
 def clean_ls(lst):
@@ -95,6 +101,10 @@ with tab2:
 
 # === 第一頁：表單填寫 ===
 with tab1:
+    if st.session_state.sync_success:
+        st.success("✅ 同步成功！畫面已更新為團隊最新進度，可直接繼續向下填寫，無需清空！")
+        st.session_state.sync_success = False
+
     col_t, col_b = st.columns([4, 1])
     col_t.header("📝 稽核檢查填寫")
     col_b.button("🔄 清空畫面重新填寫", on_click=reset_form, use_container_width=True)
@@ -143,65 +153,15 @@ with tab1:
             
         with col_sync:
             if st.button("☁️ 2. 智能合併同步至 Google 雲端", use_container_width=True):
-                with st.spinner('正在比對合併中...'):
+                with st.spinner('正在進行 Delta 差異比對與合併中...'):
                     try:
                         try: cloud_df = get_as_dataframe(record_sheet).dropna(how='all').dropna(axis=1, how='all')
                         except: cloud_df = pd.DataFrame()
                         
                         merged_results, text_fields = {}, {}
                         
-                        # 1. 將雲端表格解體成原子數據
+                        # 1. 讀取雲端
                         if not cloud_df.empty and "工地名稱" in cloud_df.columns:
                             for _, row in cloud_df.iterrows():
                                 s, cat = str(row.get("工地名稱", "")).strip(), str(row.get("工程類別", "")).strip()
-                                if not s or s == "nan": continue
-                                for it in st.session_state.inspection_items:
-                                    if it in row and pd.notna(row[it]) and str(row[it]).strip():
-                                        merged_results[f"{cat}_{s}_{it}"] = str(row[it]).strip()
-                                xi = str(row.get("缺失項目", "")).strip()
-                                if xi and xi != "nan":
-                                    desc, impr = str(row.get("缺失描述", "")).strip(), str(row.get("改善情形", "")).strip()
-                                    text_fields[f"{cat}_{s}_{xi}"] = {"缺失描述": desc if desc != "nan" else "", "改善情形": impr if impr != "nan" else ""}
-                                            
-                        # 2. 疊加本地端 (這就是不覆寫的關鍵！)
-                        for k, v in st.session_state.results.items():
-                            if v is not None and str(v).strip(): merged_results[k] = v
-                                
-                        if not ed_final.empty and "工地名稱" in ed_final.columns:
-                            for _, row in ed_final.iterrows():
-                                s, cat, xi = str(row.get("工地名稱", "")).strip(), str(row.get("工程類別", "")).strip(), str(row.get("缺失項目", "")).strip()
-                                if s and s != "nan" and xi and xi != "nan":
-                                    desc, impr = str(row.get("缺失描述", "")).strip(), str(row.get("改善情形", "")).strip()
-                                    exist = text_fields.get(f"{cat}_{s}_{xi}", {})
-                                    text_fields[f"{cat}_{s}_{xi}"] = {
-                                        "缺失描述": desc if desc and desc != "nan" else exist.get("缺失描述", ""),
-                                        "改善情形": impr if impr and impr != "nan" else exist.get("改善情形", "")
-                                    }
-                                    
-                        # 3. 完美重組報表
-                        rep_merged = []
-                        for c_name, s_list in st.session_state.sites.items():
-                            for s_name in s_list:
-                                x_items, row_base = [], {"工程類別": c_name, "工地名稱": s_name}
-                                for it in st.session_state.inspection_items:
-                                    v = merged_results.get(f"{c_name}_{s_name}_{it}", "")
-                                    row_base[it] = v
-                                    if v == 'X': x_items.append(it)
-                                if not x_items:
-                                    r = row_base.copy()
-                                    r.update({"缺失工地":"", "缺失項目":"", "缺失描述":"", "改善情形":""})
-                                    rep_merged.append(r)
-                                else:
-                                    for xi in x_items:
-                                        r = row_base.copy()
-                                        txt = text_fields.get(f"{c_name}_{s_name}_{xi}", {})
-                                        r.update({"缺失工地": s_name, "缺失項目": xi, "缺失描述": txt.get("缺失描述", ""), "改善情形": txt.get("改善情形", "")})
-                                        rep_merged.append(r)
-                                        
-                        merged_df = pd.DataFrame(rep_merged) if rep_merged else pd.DataFrame()
-                        if not merged_df.empty:
-                            record_sheet.clear() 
-                            set_with_dataframe(record_sheet, merged_df) 
-                            st.success("✅ 智能合併成功！沒有任何人被覆蓋！")
-                        else: st.warning("⚠️ 沒有資料可以同步喔！")
-                    except Exception as e: st.error(f"同步失敗: {e}")
+                                if not s or s
