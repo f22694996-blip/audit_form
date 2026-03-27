@@ -47,7 +47,7 @@ def load_settings():
                     st.session_state.sites[cat] = [str(x) for x in df_set[cat].dropna() if str(x).strip()]
     except: pass
 
-# --- 3. 初始化 (加入 Delta 記憶模組) ---
+# --- 3. 初始化 ---
 if 'sites' not in st.session_state:
     st.session_state.sites = {'建築': ['惠國101', '合銘新店'], '土木': ['C211', 'C214'], '機電': ['劍潭多目標大樓']}
     st.session_state.inspection_items = ['管制標籤', '高度2M以下', '金屬繫材確實延伸', '跨坐勿站立頂板']
@@ -141,7 +141,9 @@ with tab1:
             else:
                 for xi in x_items:
                     r = row_base.copy()
-                    r.update({"缺失工地":s, "缺失項目":xi, "缺失描述":"", "改善情形":""})
+                    # 🔧 修復核心：把上次同步的文字「回填」到報表裡，不再讓它變空白！
+                    txt = st.session_state.last_sync_texts.get(f"{cat}_{s}_{xi}", {})
+                    r.update({"缺失工地":s, "缺失項目":xi, "缺失描述": txt.get("缺失描述", ""), "改善情形": txt.get("改善情形", "")})
                     rep.append(r)
                     
     if rep:
@@ -173,7 +175,7 @@ with tab1:
                                     desc, impr = str(row.get("缺失描述", "")).strip(), str(row.get("改善情形", "")).strip()
                                     text_fields[f"{cat}_{s}_{xi}"] = {"缺失描述": desc if desc != "nan" else "", "改善情形": impr if impr != "nan" else ""}
                                             
-                        # 2. 疊加本地端 (Delta 差異覆寫，只送出你剛剛有改的)
+                        # 2. 疊加本地端 (Delta 差異覆寫)
                         for k, v in st.session_state.results.items():
                             if v is not None and str(v).strip():
                                 if str(v) != str(st.session_state.last_sync_results.get(k, "")):
@@ -217,11 +219,12 @@ with tab1:
                             record_sheet.clear() 
                             set_with_dataframe(record_sheet, merged_df) 
                             
-                            # 4. 更新本地記憶並強制刷新畫面
+                            # 4. 更新本地記憶並強制刷新畫面 (加入重置鑰匙，讓畫面立刻反映同事的進度！)
                             st.session_state.last_sync_results = merged_results.copy()
                             st.session_state.last_sync_texts = text_fields.copy()
                             for k, v in merged_results.items(): st.session_state.results[k] = v
                             
+                            st.session_state.reset_key += 1 # 🔧 強制更新按鈕狀態
                             st.session_state.sync_success = True
                             st.rerun() 
                         else: st.warning("⚠️ 沒有資料可以同步喔！")
