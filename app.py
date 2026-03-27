@@ -15,7 +15,7 @@ with st.sidebar:
         st.cache_resource.clear()
         st.rerun()
 
-st.title("☁️ 稽核檢查自動化表單 (雲端協同版)")
+st.title("☁️ 稽核檢查自動化表單 (雲端協同作戰版)")
 
 # --- 1. 雲端連線 ---
 @st.cache_resource
@@ -47,7 +47,7 @@ def load_settings():
                     st.session_state.sites[cat] = [str(x) for x in df_set[cat].dropna() if str(x).strip()]
     except: pass
 
-# --- 3. 初始化 (🧹 原廠預設值全部清空，保持最乾淨的狀態！) ---
+# --- 3. 初始化 ---
 if 'sites' not in st.session_state:
     st.session_state.sites = {'建築': [], '土木': [], '機電': []}
     st.session_state.inspection_items = ['管制標籤', '高度2M以下', '金屬繫材確實延伸', '跨坐勿站立頂板']
@@ -64,7 +64,7 @@ def reset_form():
     st.session_state.last_sync_results = {}
     st.session_state.last_sync_texts = {}
     st.session_state.reset_key += 1
-    st.success("✨ 已清空本機畫面紀錄！")
+    st.success("✨ 已清空本機畫面紀錄！(提示：這不會刪除雲端紀錄，僅清空你的畫面)")
 
 def clean_ls(lst):
     return list(dict.fromkeys([str(x).strip() for x in lst if pd.notna(x) and str(x).strip()]))
@@ -79,7 +79,6 @@ with tab2:
         st.subheader("1. 檢查項目")
         df_i = pd.DataFrame({"檢查項目": st.session_state.inspection_items})
         ed_i = st.data_editor(df_i, num_rows="dynamic", use_container_width=True, key="ed_items")
-        st.session_state.inspection_items = clean_ls(ed_i["檢查項目"].tolist())
         
     with c2:
         st.subheader("2. 工地清單")
@@ -103,6 +102,18 @@ with tab2:
                 set_with_dataframe(setting_sheet, pd.DataFrame(dict_series), include_column_header=True)
                 st.success("✅ 設定已永久儲存！")
             except Exception as e: st.error(f"儲存失敗: {e}")
+            
+    # 🔧 新增：測試用的核彈級清空按鈕
+    st.divider()
+    st.subheader("🗑️ 雲端資料庫管理 (測試專用)")
+    st.warning("如果你在測試階段，想要把雲端上的『所有填寫紀錄』徹底刪除重來，請按下方按鈕（注意：團隊已填的資料也會被清空喔！）：")
+    if st.button("🧨 徹底清空雲端填寫紀錄"):
+        with st.spinner("正在清除雲端資料庫..."):
+            try:
+                record_sheet.clear()
+                st.success("✅ 雲端資料庫已徹底清空！請切換到『表單填寫』點擊『🔄 清空畫面重新填寫』即可開始全新紀錄！")
+            except Exception as e:
+                st.error(f"清除失敗: {e}")
 
 # === 第一頁：表單填寫 ===
 with tab1:
@@ -147,7 +158,7 @@ with tab1:
                 for xi in x_items:
                     r = row_base.copy()
                     txt = st.session_state.last_sync_texts.get(f"{cat}_{s}_{xi}", {})
-                    r.update({"缺失工地":s, "缺失項目":xi, "缺失描述": txt.get("缺失描述", ""), "改善情形": txt.get("改善情形", "")})
+                    r.update({"缺失工地": s, "缺失項目": xi, "缺失描述": txt.get("缺失描述", ""), "改善情形": txt.get("改善情形", "")})
                     rep.append(r)
                     
     if rep:
@@ -169,14 +180,16 @@ with tab1:
                         if not cloud_df.empty and "工地名稱" in cloud_df.columns:
                             for _, row in cloud_df.iterrows():
                                 s, cat = str(row.get("工地名稱", "")).strip(), str(row.get("工程類別", "")).strip()
-                                if not s or s == "nan": continue
+                                if not s or s.lower() == "nan": continue
                                 for it in st.session_state.inspection_items:
                                     if it in row and pd.notna(row[it]) and str(row[it]).strip():
-                                        merged_results[f"{cat}_{s}_{it}"] = str(row[it]).strip()
+                                        val = str(row[it]).strip()
+                                        if val.lower() != "nan":
+                                            merged_results[f"{cat}_{s}_{it}"] = val
                                 xi = str(row.get("缺失項目", "")).strip()
-                                if xi and xi != "nan":
+                                if xi and xi.lower() != "nan":
                                     desc, impr = str(row.get("缺失描述", "")).strip(), str(row.get("改善情形", "")).strip()
-                                    text_fields[f"{cat}_{s}_{xi}"] = {"缺失描述": desc if desc != "nan" else "", "改善情形": impr if impr != "nan" else ""}
+                                    text_fields[f"{cat}_{s}_{xi}"] = {"缺失描述": desc if desc.lower() != "nan" else "", "改善情形": impr if impr.lower() != "nan" else ""}
                                             
                         for k, v in st.session_state.results.items():
                             if v is not None and str(v).strip():
@@ -186,8 +199,11 @@ with tab1:
                         if not ed_final.empty and "工地名稱" in ed_final.columns:
                             for _, row in ed_final.iterrows():
                                 s, cat, xi = str(row.get("工地名稱", "")).strip(), str(row.get("工程類別", "")).strip(), str(row.get("缺失項目", "")).strip()
-                                if s and s != "nan" and xi and xi != "nan":
+                                if s and s.lower() != "nan" and xi and xi.lower() != "nan":
                                     desc, impr = str(row.get("缺失描述", "")).strip(), str(row.get("改善情形", "")).strip()
+                                    desc = "" if desc.lower() == "nan" else desc
+                                    impr = "" if impr.lower() == "nan" else impr
+                                    
                                     cloud_txt = text_fields.get(f"{cat}_{s}_{xi}", {})
                                     last_txt = st.session_state.last_sync_texts.get(f"{cat}_{s}_{xi}", {})
                                     
