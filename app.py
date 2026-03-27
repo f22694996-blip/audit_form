@@ -164,4 +164,65 @@ with tab1:
                         if not cloud_df.empty and "工地名稱" in cloud_df.columns:
                             for _, row in cloud_df.iterrows():
                                 s, cat = str(row.get("工地名稱", "")).strip(), str(row.get("工程類別", "")).strip()
-                                if not s or s
+                                if not s or s == "nan": continue
+                                for it in st.session_state.inspection_items:
+                                    if it in row and pd.notna(row[it]) and str(row[it]).strip():
+                                        merged_results[f"{cat}_{s}_{it}"] = str(row[it]).strip()
+                                xi = str(row.get("缺失項目", "")).strip()
+                                if xi and xi != "nan":
+                                    desc, impr = str(row.get("缺失描述", "")).strip(), str(row.get("改善情形", "")).strip()
+                                    text_fields[f"{cat}_{s}_{xi}"] = {"缺失描述": desc if desc != "nan" else "", "改善情形": impr if impr != "nan" else ""}
+                                            
+                        # 2. 疊加本地端 (Delta 差異覆寫，只送出你剛剛有改的)
+                        for k, v in st.session_state.results.items():
+                            if v is not None and str(v).strip():
+                                if str(v) != str(st.session_state.last_sync_results.get(k, "")):
+                                    merged_results[k] = v
+                                    
+                        if not ed_final.empty and "工地名稱" in ed_final.columns:
+                            for _, row in ed_final.iterrows():
+                                s, cat, xi = str(row.get("工地名稱", "")).strip(), str(row.get("工程類別", "")).strip(), str(row.get("缺失項目", "")).strip()
+                                if s and s != "nan" and xi and xi != "nan":
+                                    desc, impr = str(row.get("缺失描述", "")).strip(), str(row.get("改善情形", "")).strip()
+                                    cloud_txt = text_fields.get(f"{cat}_{s}_{xi}", {})
+                                    last_txt = st.session_state.last_sync_texts.get(f"{cat}_{s}_{xi}", {})
+                                    
+                                    # 如果你手寫的字跟上次同步不一樣，才覆蓋雲端
+                                    f_desc = desc if str(desc) != str(last_txt.get("缺失描述", "")) else cloud_txt.get("缺失描述", "")
+                                    f_impr = impr if str(impr) != str(last_txt.get("改善情形", "")) else cloud_txt.get("改善情形", "")
+                                    text_fields[f"{cat}_{s}_{xi}"] = {"缺失描述": f_desc, "改善情形": f_impr}
+                                    
+                        # 3. 重組報表
+                        rep_merged = []
+                        for c_name, s_list in st.session_state.sites.items():
+                            for s_name in s_list:
+                                x_items, row_base = [], {"工程類別": c_name, "工地名稱": s_name}
+                                for it in st.session_state.inspection_items:
+                                    v = merged_results.get(f"{c_name}_{s_name}_{it}", "")
+                                    row_base[it] = v
+                                    if v == 'X': x_items.append(it)
+                                if not x_items:
+                                    r = row_base.copy()
+                                    r.update({"缺失工地":"", "缺失項目":"", "缺失描述":"", "改善情形":""})
+                                    rep_merged.append(r)
+                                else:
+                                    for xi in x_items:
+                                        r = row_base.copy()
+                                        txt = text_fields.get(f"{c_name}_{s_name}_{xi}", {})
+                                        r.update({"缺失工地": s_name, "缺失項目": xi, "缺失描述": txt.get("缺失描述", ""), "改善情形": txt.get("改善情形", "")})
+                                        rep_merged.append(r)
+                                        
+                        merged_df = pd.DataFrame(rep_merged) if rep_merged else pd.DataFrame()
+                        if not merged_df.empty:
+                            record_sheet.clear() 
+                            set_with_dataframe(record_sheet, merged_df) 
+                            
+                            # 4. 更新本地記憶並強制刷新畫面
+                            st.session_state.last_sync_results = merged_results.copy()
+                            st.session_state.last_sync_texts = text_fields.copy()
+                            for k, v in merged_results.items(): st.session_state.results[k] = v
+                            
+                            st.session_state.sync_success = True
+                            st.rerun() 
+                        else: st.warning("⚠️ 沒有資料可以同步喔！")
+                    except Exception as e: st.error(f"同步失敗: {e}")
