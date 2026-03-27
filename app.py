@@ -15,7 +15,7 @@ with st.sidebar:
         st.cache_resource.clear()
         st.rerun()
 
-st.title("☁️ 稽核檢查自動化表單 (雲端協同作戰版)")
+st.title("☁️ 稽核檢查自動化表單 (雲端協同版)")
 
 # --- 1. 雲端連線 ---
 @st.cache_resource
@@ -38,7 +38,7 @@ except Exception as e:
 # --- 2. 載入設定 ---
 def load_settings():
     try:
-        df_set = get_as_dataframe(setting_sheet).dropna(how='all').dropna(axis=1, how='all')
+        df_set = get_as_dataframe(setting_sheet, header=0).dropna(how='all').dropna(axis=1, how='all')
         if not df_set.empty:
             if "檢查項目" in df_set.columns:
                 st.session_state.inspection_items = [str(x) for x in df_set["檢查項目"].dropna() if str(x).strip()]
@@ -47,9 +47,9 @@ def load_settings():
                     st.session_state.sites[cat] = [str(x) for x in df_set[cat].dropna() if str(x).strip()]
     except: pass
 
-# --- 3. 初始化 ---
+# --- 3. 初始化 (🧹 原廠預設值全部清空，保持最乾淨的狀態！) ---
 if 'sites' not in st.session_state:
-    st.session_state.sites = {'建築': ['惠國101', '合銘新店'], '土木': ['C211', 'C214'], '機電': ['劍潭多目標大樓']}
+    st.session_state.sites = {'建築': [], '土木': [], '機電': []}
     st.session_state.inspection_items = ['管制標籤', '高度2M以下', '金屬繫材確實延伸', '跨坐勿站立頂板']
     load_settings() 
 
@@ -74,31 +74,33 @@ tab1, tab2 = st.tabs(["📝 表單填寫", "⚙️ 後台設定"])
 # === 第二頁：後台設定 ===
 with tab2:
     st.header("⚙️ 系統設定")
-    # 🔧 加入防呆警告，提醒不要刪除雲端第一列
-    st.warning("⚠️ 重要提醒：Google 雲端表單的『第一列 (Row 1)』為系統專屬標題列。請勿在 Google Sheets 手動刪除第一列，否則你的第一筆資料會被當成標題吃掉喔！")
-    
     c1, c2 = st.columns(2)
     with c1:
         st.subheader("1. 檢查項目")
         df_i = pd.DataFrame({"檢查項目": st.session_state.inspection_items})
         ed_i = st.data_editor(df_i, num_rows="dynamic", use_container_width=True, key="ed_items")
         st.session_state.inspection_items = clean_ls(ed_i["檢查項目"].tolist())
+        
     with c2:
         st.subheader("2. 工地清單")
         site_tabs = st.tabs(['🏗️ 建築', '🛣️ 土木', '⚡ 機電'])
+        editors = {} 
         for idx, cat in enumerate(['建築', '土木', '機電']):
             with site_tabs[idx]:
                 df_s = pd.DataFrame({f"{cat}工地": st.session_state.sites[cat]})
-                ed_s = st.data_editor(df_s, num_rows="dynamic", use_container_width=True, key=f"ed_{cat}")
-                st.session_state.sites[cat] = clean_ls(ed_s[f"{cat}工地"].tolist())
+                editors[cat] = st.data_editor(df_s, num_rows="dynamic", use_container_width=True, key=f"ed_{cat}")
             
     if st.button("💾 將以上設定儲存至雲端", use_container_width=True):
         with st.spinner('寫入雲端中...'):
             try:
+                st.session_state.inspection_items = clean_ls(ed_i["檢查項目"].tolist())
+                for cat in ['建築', '土木', '機電']:
+                    st.session_state.sites[cat] = clean_ls(editors[cat][f"{cat}工地"].tolist())
+                    
                 dict_series = {"檢查項目": pd.Series(st.session_state.inspection_items)}
                 for c in ['建築', '土木', '機電']: dict_series[c] = pd.Series(st.session_state.sites[c])
                 setting_sheet.clear()
-                set_with_dataframe(setting_sheet, pd.DataFrame(dict_series))
+                set_with_dataframe(setting_sheet, pd.DataFrame(dict_series), include_column_header=True)
                 st.success("✅ 設定已永久儲存！")
             except Exception as e: st.error(f"儲存失敗: {e}")
 
@@ -129,9 +131,6 @@ with tab1:
                 st.divider()
 
     st.header("📊 完整全覽報表與雲端同步")
-    # 🔧 填寫區也加入防呆警告
-    st.info("💡 提醒：請確保雲端 Google Sheets 的第一列標題完好無缺，以免第一筆資料同步時被系統誤認為標題而覆蓋。")
-    
     rep = []
     for cat, s_list in st.session_state.sites.items():
         for s in s_list:
@@ -162,12 +161,11 @@ with tab1:
             if st.button("☁️ 2. 智能合併同步至 Google 雲端", use_container_width=True):
                 with st.spinner('正在進行 Delta 差異比對與合併中...'):
                     try:
-                        try: cloud_df = get_as_dataframe(record_sheet).dropna(how='all').dropna(axis=1, how='all')
+                        try: cloud_df = get_as_dataframe(record_sheet, header=0).dropna(how='all').dropna(axis=1, how='all')
                         except: cloud_df = pd.DataFrame()
                         
                         merged_results, text_fields = {}, {}
                         
-                        # 1. 讀取雲端
                         if not cloud_df.empty and "工地名稱" in cloud_df.columns:
                             for _, row in cloud_df.iterrows():
                                 s, cat = str(row.get("工地名稱", "")).strip(), str(row.get("工程類別", "")).strip()
@@ -180,7 +178,6 @@ with tab1:
                                     desc, impr = str(row.get("缺失描述", "")).strip(), str(row.get("改善情形", "")).strip()
                                     text_fields[f"{cat}_{s}_{xi}"] = {"缺失描述": desc if desc != "nan" else "", "改善情形": impr if impr != "nan" else ""}
                                             
-                        # 2. 疊加本地端 (Delta 差異覆寫)
                         for k, v in st.session_state.results.items():
                             if v is not None and str(v).strip():
                                 if str(v) != str(st.session_state.last_sync_results.get(k, "")):
@@ -198,7 +195,6 @@ with tab1:
                                     f_impr = impr if str(impr) != str(last_txt.get("改善情形", "")) else cloud_txt.get("改善情形", "")
                                     text_fields[f"{cat}_{s}_{xi}"] = {"缺失描述": f_desc, "改善情形": f_impr}
                                     
-                        # 3. 重組報表
                         rep_merged = []
                         for c_name, s_list in st.session_state.sites.items():
                             for s_name in s_list:
@@ -221,9 +217,8 @@ with tab1:
                         merged_df = pd.DataFrame(rep_merged) if rep_merged else pd.DataFrame()
                         if not merged_df.empty:
                             record_sheet.clear() 
-                            set_with_dataframe(record_sheet, merged_df) 
+                            set_with_dataframe(record_sheet, merged_df, include_column_header=True) 
                             
-                            # 4. 更新本地記憶並強制刷新畫面
                             st.session_state.last_sync_results = merged_results.copy()
                             st.session_state.last_sync_texts = text_fields.copy()
                             for k, v in merged_results.items(): st.session_state.results[k] = v
