@@ -153,32 +153,43 @@ with tab1:
             
         with col_sync:
             if st.button("☁️ 2. 智能合併同步至 Google 雲端", use_container_width=True):
-                with st.spinner('正在比對合併中...'):
+                with st.spinner('正在與雲端資料智能比對合併中...'):
                     try:
+                        # 1. 下載最新雲端資料
                         try:
                             cloud_df = get_as_dataframe(record_sheet).dropna(how='all').dropna(axis=1, how='all')
                         except:
                             cloud_df = pd.DataFrame()
                         
-                        local_df = ed_final.copy()
-                        if cloud_df.empty or "工地名稱" not in cloud_df.columns or "缺失項目" not in cloud_df.columns:
-                            merged_df = local_df
-                        else:
-                            cloud_df = cloud_df.set_index(["工地名稱", "缺失項目"], drop=False)
-                            local_df = local_df.set_index(["工地名稱", "缺失項目"], drop=False)
-                            cloud_na = cloud_df.replace("", pd.NA)
-                            local_na = local_df.replace("", pd.NA)
-                            cloud_na.update(local_na)
-                            new_rows = local_na[~local_na.index.isin(cloud_na.index)]
-                            merged_df = pd.concat([cloud_na, new_rows])
-                            merged_df = merged_df.fillna("").reset_index(drop=True)
-                            
-                            sites_with_issues = merged_df[merged_df["缺失項目"] != ""]["工地名稱"].unique()
-                            mask_to_drop = (merged_df["工地名稱"].isin(sites_with_issues)) & (merged_df["缺失項目"] == "")
-                            merged_df = merged_df[~mask_to_drop]
-
-                        record_sheet.clear() 
-                        set_with_dataframe(record_sheet, merged_df) 
-                        st.success("✅ 太棒了！你的資料已完美合併，沒有任何人被覆蓋！")
-                    except Exception as e:
-                        st.error(f"同步失敗: {e}")
+                        # 2. 將雲端表格「解壓縮」成原子數據
+                        merged_results = {}
+                        text_fields = {}
+                        
+                        if not cloud_df.empty and "工地名稱" in cloud_df.columns:
+                            for _, row in cloud_df.iterrows():
+                                s = str(row.get("工地名稱", "")).strip()
+                                cat = str(row.get("工程類別", "")).strip()
+                                if not s or s == "nan": continue
+                                
+                                # 紀錄選擇題
+                                for it in st.session_state.inspection_items:
+                                    if it in row and pd.notna(row[it]) and str(row[it]).strip() != "":
+                                        key = f"{cat}_{s}_{it}"
+                                        merged_results[key] = str(row[it]).strip()
+                                        
+                                # 紀錄手寫文字 (缺失描述、改善情形)
+                                xi = str(row.get("缺失項目", "")).strip()
+                                if xi and xi != "nan":
+                                    desc = str(row.get("缺失描述", "")).strip()
+                                    impr = str(row.get("改善情形", "")).strip()
+                                    text_fields[f"{cat}_{s}_{xi}"] = {
+                                        "缺失描述": desc if desc != "nan" else "",
+                                        "改善情形": impr if impr != "nan" else ""
+                                    }
+                                            
+                        # 3. 疊加本地端最新進度 (本地有填寫的才會覆蓋雲端)
+                        for k, v in st.session_state.results.items():
+                            if v is not None and str(v).strip() != "":
+                                merged_results[k] = v
+                                
+                        # 疊加本地端手寫文字
