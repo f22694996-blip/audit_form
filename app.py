@@ -7,10 +7,9 @@ from gspread_dataframe import set_with_dataframe, get_as_dataframe
 
 st.set_page_config(layout="wide") 
 
-# --- 0. 系統急救站 (對付畫面卡住或按鈕消失) ---
+# --- 0. 系統急救站 ---
 with st.sidebar:
     st.header("🛠️ 系統維護")
-    st.write("如果你發現畫面空白、按鈕消失，請按下方按鈕清除瀏覽器裡的「幽靈暫存」。")
     if st.button("🚨 強制重置系統"):
         st.session_state.clear()
         st.cache_resource.clear()
@@ -69,15 +68,12 @@ tab1, tab2 = st.tabs(["📝 表單填寫", "⚙️ 後台設定"])
 # === 第二頁：後台設定 ===
 with tab2:
     st.header("⚙️ 系統設定")
-    st.info("💡 請在下方表格的『空白處』點一下即可輸入文字。設定完成後請按最下方的儲存按鈕。")
-    
     c1, c2 = st.columns(2)
     with c1:
         st.subheader("1. 檢查項目")
         df_i = pd.DataFrame({"檢查項目": st.session_state.inspection_items})
         ed_i = st.data_editor(df_i, num_rows="dynamic", use_container_width=True, key="ed_items")
         st.session_state.inspection_items = clean_ls(ed_i["檢查項目"].tolist())
-        
     with c2:
         st.subheader("2. 工地清單")
         site_tabs = st.tabs(['🏗️ 建築', '🛣️ 土木', '⚡ 機電'])
@@ -87,7 +83,6 @@ with tab2:
                 ed_s = st.data_editor(df_s, num_rows="dynamic", use_container_width=True, key=f"ed_{cat}")
                 st.session_state.sites[cat] = clean_ls(ed_s[f"{cat}工地"].tolist())
             
-    st.divider()
     if st.button("💾 將以上設定儲存至雲端", use_container_width=True):
         with st.spinner('寫入雲端中...'):
             try:
@@ -96,8 +91,7 @@ with tab2:
                 setting_sheet.clear()
                 set_with_dataframe(setting_sheet, pd.DataFrame(dict_series))
                 st.success("✅ 設定已永久儲存！")
-            except Exception as e: 
-                st.error(f"儲存失敗: {e}")
+            except Exception as e: st.error(f"儲存失敗: {e}")
 
 # === 第一頁：表單填寫 ===
 with tab1:
@@ -145,7 +139,7 @@ with tab1:
         
         col_dl, col_sync = st.columns(2)
         with col_dl:
-            st.download_button("📥 1. 下載目前畫面稽核表", ed_final.to_csv(index=False).encode('utf-8-sig'), "稽核報表.csv", "text/csv", use_container_width=True)
+            st.download_button("📥 1. 下載目前畫面", ed_final.to_csv(index=False).encode('utf-8-sig'), "稽核報表.csv", "text/csv", use_container_width=True)
             
         with col_sync:
             if st.button("☁️ 2. 智能合併同步至 Google 雲端", use_container_width=True):
@@ -156,7 +150,7 @@ with tab1:
                         
                         merged_results, text_fields = {}, {}
                         
-                        # 讀取雲端
+                        # 1. 將雲端表格解體成原子數據
                         if not cloud_df.empty and "工地名稱" in cloud_df.columns:
                             for _, row in cloud_df.iterrows():
                                 s, cat = str(row.get("工地名稱", "")).strip(), str(row.get("工程類別", "")).strip()
@@ -169,7 +163,7 @@ with tab1:
                                     desc, impr = str(row.get("缺失描述", "")).strip(), str(row.get("改善情形", "")).strip()
                                     text_fields[f"{cat}_{s}_{xi}"] = {"缺失描述": desc if desc != "nan" else "", "改善情形": impr if impr != "nan" else ""}
                                             
-                        # 疊加本地
+                        # 2. 疊加本地端 (這就是不覆寫的關鍵！)
                         for k, v in st.session_state.results.items():
                             if v is not None and str(v).strip(): merged_results[k] = v
                                 
@@ -184,7 +178,7 @@ with tab1:
                                         "改善情形": impr if impr and impr != "nan" else exist.get("改善情形", "")
                                     }
                                     
-                        # 重組報表
+                        # 3. 完美重組報表
                         rep_merged = []
                         for c_name, s_list in st.session_state.sites.items():
                             for s_name in s_list:
