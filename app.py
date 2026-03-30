@@ -15,7 +15,7 @@ with st.sidebar:
         st.cache_resource.clear()
         st.rerun()
 
-st.title("☁️ 稽核檢查自動化表單 (雲端協同版)")
+st.title("☁️ 稽核檢查自動化表單 (雲端協同作戰版)")
 
 # --- 1. 雲端連線 ---
 @st.cache_resource
@@ -65,7 +65,7 @@ def reset_form():
     st.session_state.last_sync_results = {}
     st.session_state.last_sync_texts = {}
     st.session_state.reset_key += 1
-    st.success("✨ 已清空本機畫面紀錄！")
+    st.success("✨ 已清空全部畫面紀錄！")
 
 def clean_ls(lst):
     return list(dict.fromkeys([str(x).strip() for x in lst if pd.notna(x) and str(x).strip()]))
@@ -113,37 +113,58 @@ with tab2:
                 st.success("✅ 雲端資料庫已徹底清空！請切換到『表單填寫』點擊『🔄 清空畫面重新填寫』即可開始全新紀錄！")
             except Exception as e: st.error(f"清除失敗: {e}")
 
-# === 第一頁：表單填寫 ===
+# === 第一頁：表單填寫 (📱 行動版旗艦介面) ===
 with tab1:
     if st.session_state.sync_success:
-        st.success("✅ 同步成功！資料已安全送達雲端。您可以繼續留在本頁面填寫其他工地，無需清空！")
+        st.success("✅ 同步成功！資料已安全送達。您可以直接從下方選單切換至下一個工地繼續填寫！")
         st.session_state.sync_success = False
 
     col_t, col_b = st.columns([4, 1])
     col_t.header("📝 稽核檢查填寫")
-    col_b.button("🔄 清空畫面重新填寫", on_click=reset_form, use_container_width=True)
+    col_b.button("🔄 清空全部畫面", on_click=reset_form, use_container_width=True)
 
-    for cat, site_list in st.session_state.sites.items():
-        if site_list:
-            st.subheader(f"【{cat}】")
-            for site in site_list:
-                if not st.session_state.inspection_items: continue
-                st.markdown(f"#### 🏗️ 工地：{site}")
-                item_cols = st.columns(2) 
-                for i, item in enumerate(st.session_state.inspection_items):
-                    key = f"{cat}_{site}_{item}"
-                    if key not in st.session_state.results: st.session_state.results[key] = None
-                    cur = st.session_state.results[key]
-                    idx = ['○', 'X', 'NA'].index(cur) if cur in ['○', 'X', 'NA'] else None
-                    with item_cols[i % 2]:
-                        st.session_state.results[key] = st.radio(f"📌 {item}", ['○', 'X', 'NA'], key=f"r_{key}_{st.session_state.reset_key}", index=idx, horizontal=True)
-                st.divider()
+    st.info("💡 請先選擇工程類別與工地，下方會自動展開該工地的檢查表。")
 
-    # 💡 標題修正：提醒使用者這只是「自己的進度」，不是雲端的總表
+    # 📱 核心升級 1：改用下拉式選單，畫面瞬間清爽！
+    sel_cat = st.selectbox("🏗️ 1. 請選擇工程類別", list(st.session_state.sites.keys()))
+    
+    if st.session_state.sites[sel_cat]:
+        sel_site = st.selectbox("📍 2. 請選擇工地名稱", st.session_state.sites[sel_cat])
+        
+        st.divider()
+        st.markdown(f"### 📋 目前填寫：【{sel_cat}】{sel_site}")
+        
+        if st.session_state.inspection_items:
+            # 📱 核心升級 2：取消雙欄位，改用單欄位直式排列，讓手指更好點擊！
+            for item in st.session_state.inspection_items:
+                key = f"{sel_cat}_{sel_site}_{item}"
+                if key not in st.session_state.results: st.session_state.results[key] = None
+                cur = st.session_state.results[key]
+                idx = ['○', 'X', 'NA'].index(cur) if cur in ['○', 'X', 'NA'] else None
+                
+                st.session_state.results[key] = st.radio(
+                    f"📌 {item}", 
+                    ['○', 'X', 'NA'], 
+                    key=f"r_{key}_{st.session_state.reset_key}", 
+                    index=idx, 
+                    horizontal=True
+                )
+        else:
+            st.warning("請先至『後台設定』新增檢查項目！")
+    else:
+        st.warning(f"目前 {sel_cat} 類別下沒有工地，請先至『後台設定』新增！")
+
+    st.divider()
     st.header("📊 您目前的填寫進度 (準備同步的資料)")
+    
+    # 📱 核心升級 3：智慧過濾總表，只顯示「你有動過」的工地！
     rep = []
     for cat, s_list in st.session_state.sites.items():
         for s in s_list:
+            # 檢查這個工地有沒有填任何資料，沒填就直接跳過，不印在報表上！
+            has_data = any(st.session_state.results.get(f"{cat}_{s}_{it}") for it in st.session_state.inspection_items)
+            if not has_data: continue 
+            
             x_items, row_base = [], {"工程類別": cat, "工地名稱": s}
             for it in st.session_state.inspection_items:
                 v = st.session_state.results.get(f"{cat}_{s}_{it}")
@@ -235,8 +256,6 @@ with tab1:
                             record_sheet.clear() 
                             set_with_dataframe(record_sheet, merged_df, include_column_header=True) 
                             
-                            # 💡 核心修正：這裡不再把雲端的資料倒灌回使用者的畫面！
-                            # 只安靜地記下使用者「自己」剛剛成功送出了什麼
                             st.session_state.last_sync_results = st.session_state.results.copy()
                             
                             local_texts = {}
@@ -254,3 +273,5 @@ with tab1:
                             st.rerun() 
                         else: st.warning("⚠️ 沒有資料可以同步喔！")
                     except Exception as e: st.error(f"同步失敗: {e}")
+    else:
+        st.info("👆 請先在上方選擇工地並填寫紀錄，資料便會顯示在這裡喔！")
